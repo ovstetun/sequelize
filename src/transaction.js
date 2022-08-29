@@ -58,6 +58,9 @@ class Transaction {
 
     try {
       await this.sequelize.getQueryInterface().commitTransaction(this, this.options);
+      for (const hook of this._afterCommitHooks) {
+        await hook.apply(this, [this]);
+      }
       this.cleanup();
     } catch (e) {
       console.warn(`Committing transaction ${this.id} failed with error ${JSON.stringify(e.message)}. We are killing its connection as it is now in an undetermined state.`);
@@ -66,9 +69,6 @@ class Transaction {
       throw e;
     } finally {
       this.finished = 'commit';
-      for (const hook of this._afterCommitHooks) {
-        await hook.apply(this, [this]);
-      }
     }
   }
 
