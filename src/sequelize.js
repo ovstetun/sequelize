@@ -97,6 +97,10 @@ class Sequelize {
    *   // - default: false
    *   native: true,
    *
+   *   // A flag that defines if connection should be over ssl or not
+   *   // - default: undefined
+   *   ssl: true,
+   *
    *   // Specify options, which are used when sequelize.define is called.
    *   // The following example:
    *   //   define: { timestamps: false }
@@ -156,6 +160,7 @@ class Sequelize {
    * @param {boolean}  [options.benchmark=false] Pass query execution time in milliseconds as second argument to logging function (options.logging).
    * @param {boolean}  [options.omitNull=false] A flag that defines if null values should be passed as values to CREATE/UPDATE SQL queries or not.
    * @param {boolean}  [options.native=false] A flag that defines if native library shall be used or not. Currently only has an effect for postgres
+   * @param {boolean}  [options.ssl=undefined] A flag that defines if connection should be over ssl or not
    * @param {boolean}  [options.replication=false] Use read / write replication. To enable replication, pass an object, with two properties, read and write. Write should be an object (a single server for handling writes), and read an array of object (several servers to handle reads). Each read/write server can have the following properties: `host`, `port`, `username`, `password`, `database`
    * @param {object}   [options.pool] sequelize connection pool configuration
    * @param {number}   [options.pool.max=5] Maximum number of connection in pool
@@ -340,6 +345,9 @@ class Sequelize {
       case 'mysql':
         Dialect = require('./dialects/mysql');
         break;
+      case 'oracle':
+        Dialect = require('./dialects/oracle');
+        break;
       case 'postgres':
         Dialect = require('./dialects/postgres');
         break;
@@ -353,7 +361,7 @@ class Sequelize {
         Dialect = require('./dialects/snowflake');
         break;
       default:
-        throw new Error(`The dialect ${this.getDialect()} is not supported. Supported dialects: mssql, mariadb, mysql, postgres, db2 and sqlite.`);
+        throw new Error(`The dialect ${this.getDialect()} is not supported. Supported dialects: mssql, mariadb, mysql, oracle, postgres, db2 and sqlite.`);
     }
 
     this.dialect = new Dialect(this);
@@ -960,7 +968,7 @@ class Sequelize {
       ...options
     };
 
-    await this.query('SELECT 1+1 AS result', options);
+    await this.query(this.dialect.queryGenerator.authTestQuery(), options);
 
     return;
   }
