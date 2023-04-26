@@ -3,7 +3,7 @@
 const url = require('url');
 const path = require('path');
 const pgConnectionString = require('pg-connection-string');
-const retry = require('retry-as-promised');
+const retry = require('retry-as-promised').default;
 const _ = require('lodash');
 
 const Utils = require('./utils');
@@ -292,6 +292,7 @@ class Sequelize {
       benchmark: false,
       minifyAliases: false,
       logQueryParameters: false,
+      attributeBehavior: 'throw',
       ...options
     };
 

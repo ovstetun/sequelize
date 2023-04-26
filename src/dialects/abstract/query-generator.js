@@ -198,6 +198,13 @@ class QueryGenerator {
 
     let onDuplicateKeyUpdate = '';
 
+    if (
+      !_.isEmpty(options.conflictWhere)
+      && !this._dialect.supports.inserts.onConflictWhere
+    ) {
+      throw new Error('missing dialect support for conflictWhere option');
+    }
+
     // `options.updateOnDuplicate` is the list of field names to update if a duplicate key is hit during the insert.  It
     // contains just the field names.  This option is _usually_ explicitly set by the corresponding query-interface
     // upsert function.
@@ -206,10 +213,28 @@ class QueryGenerator {
         // If no conflict target columns were specified, use the primary key names from options.upsertKeys
         const conflictKeys = options.upsertKeys.map(attr => this.quoteIdentifier(attr));
         const updateKeys = options.updateOnDuplicate.map(attr => `${this.quoteIdentifier(attr)}=EXCLUDED.${this.quoteIdentifier(attr)}`);
-        onDuplicateKeyUpdate = ` ON CONFLICT (${conflictKeys.join(',')})`;
+
+        const fragments = [
+          'ON CONFLICT',
+          '(',
+          conflictKeys.join(','),
+          ')'
+        ];
+
+        if (!_.isEmpty(options.conflictWhere)) {
+          fragments.push(this.whereQuery(options.conflictWhere, options));
+        }
+
         // if update keys are provided, then apply them here.  if there are no updateKeys provided, then do not try to
         // do an update.  Instead, fall back to DO NOTHING.
-        onDuplicateKeyUpdate += _.isEmpty(updateKeys) ? ' DO NOTHING ' : ` DO UPDATE SET ${updateKeys.join(',')}`;
+        if (_.isEmpty(updateKeys)) {
+          fragments.push('DO NOTHING');
+        } else {
+          fragments.push('DO UPDATE SET', updateKeys.join(','));
+        }
+
+        onDuplicateKeyUpdate = ` ${Utils.joinSQLFragments(fragments)}`;
+
       } else {
         const valueKeys = options.updateOnDuplicate.map(attr => `${this.quoteIdentifier(attr)}=VALUES(${this.quoteIdentifier(attr)})`);
         // the rough equivalent to ON CONFLICT DO NOTHING in mysql, etc is ON DUPLICATE KEY UPDATE id = id
@@ -339,8 +364,31 @@ class QueryGenerator {
         // If no conflict target columns were specified, use the primary key names from options.upsertKeys
         const conflictKeys = options.upsertKeys.map(attr => this.quoteIdentifier(attr));
         const updateKeys = options.updateOnDuplicate.map(attr => `${this.quoteIdentifier(attr)}=EXCLUDED.${this.quoteIdentifier(attr)}`);
-        onDuplicateKeyUpdate = ` ON CONFLICT (${conflictKeys.join(',')}) DO UPDATE SET ${updateKeys.join(',')}`;
+
+        let whereClause = false;
+        if (options.conflictWhere) {
+          if (!this._dialect.supports.inserts.onConflictWhere) {
+            throw new Error(`conflictWhere not supported for dialect ${this._dialect.name}`);
+          }
+
+          whereClause = this.whereQuery(options.conflictWhere, options);
+        }
+
+        // The Utils.joinSQLFragments later on will join this as it handles nested arrays.
+        onDuplicateKeyUpdate = [
+          'ON CONFLICT',
+          '(',
+          conflictKeys.join(','),
+          ')',
+          whereClause,
+          'DO UPDATE SET',
+          updateKeys.join(',')
+        ];
       } else { // mysql / maria
+        if (options.conflictWhere) {
+          throw new Error(`conflictWhere not supported for dialect ${this._dialect.name}`);
+        }
+
         const valueKeys = options.updateOnDuplicate.map(attr => `${this.quoteIdentifier(attr)}=VALUES(${this.quoteIdentifier(attr)})`);
         onDuplicateKeyUpdate = `${this._dialect.supports.inserts.updateOnDuplicate} ${valueKeys.join(',')}`;
       }
@@ -1521,11 +1569,24 @@ class QueryGenerator {
         if (attr[0] instanceof Utils.SequelizeMethod) {
           attr[0] = this.handleSequelizeMethod(attr[0]);
           addTable = false;
-        } else if (!attr[0].includes('(') && !attr[0].includes(')')) {
+        } else if (this.options.attributeBehavior === 'escape' || !attr[0].includes('(') && !attr[0].includes(')')) {
           attr[0] = this.quoteIdentifier(attr[0]);
-        } else {
-          deprecations.noRawAttributes();
+        } else if (this.options.attributeBehavior !== 'unsafe-legacy') {
+          throw new Error(`Attributes cannot include parentheses in Sequelize 6:
+In order to fix the vulnerability CVE-2023-22578, we had to remove support for treating attributes as raw SQL if they included parentheses.
+Sequelize 7 escapes all attributes, even if they include parentheses.
+For Sequelize 6, because we're introducing this change in a minor release, we've opted for throwing an error instead of silently escaping the attribute as a way to warn you about this change.
+
+Here is what you can do to fix this error:
+- Wrap the attribute in a literal() call. This will make Sequelize treat it as raw SQL.
+- Set the "attributeBehavior" sequelize option to "escape" to make Sequelize escape the attribute, like in Sequelize v7. We highly recommend this option.
+- Set the "attributeBehavior" sequelize option to "unsafe-legacy" to make Sequelize escape the attribute, like in Sequelize v5.
+
+We sincerely apologize for the inconvenience this may cause you. You can find more information on the following threads:
+https://github.com/sequelize/sequelize/security/advisories/GHSA-f598-mfpv-gmfx
+https://github.com/sequelize/sequelize/discussions/15694`);
         }
+
         let alias = attr[1];
 
         if (this.options.minifyAliases) {
@@ -2792,7 +2853,7 @@ class QueryGenerator {
         type: options.type
       });
     }
-    if (typeof smth === 'number') {
+    if (typeof smth === 'number' || typeof smth === 'bigint') {
       let primaryKeys = factory ? Object.keys(factory.primaryKeys) : [];
 
       if (primaryKeys.length > 0) {
@@ -2826,14 +2887,14 @@ class QueryGenerator {
       }
       throw new Error('Support for literal replacements in the `where` object has been removed.');
     }
-    if (smth === null) {
+    if (smth == null) {
       return this.whereItemsQuery(smth, {
         model: factory,
         prefix: prepend && tableName
       });
     }
 
-    return '1=1';
+    throw new Error(`Unsupported where option value: ${util.inspect(smth)}. Please refer to the Sequelize documentation to learn more about which values are accepted as part of the where option.`);
   }
 
   // A recursive parser for nested where conditions
