@@ -1231,8 +1231,11 @@ class QueryGenerator {
         return `json_unquote(json_extract(${quotedColumn},${pathStr}))`;
 
       case 'postgres':
-        const join = isJson ? '#>' : '#>>';
-        pathStr = this.escape(`{${paths.join(',')}}`);
+        // const join = isJson ? '#>' : '#>>';
+        // pathStr = this.escape(`{${paths.join(',')}}`);
+        const join = isJson ? "->" : "->>";
+        pathStr = this.escape(`${paths.join(",")}`);
+
         return `(${quotedColumn}${join}${pathStr})`;
 
       default:
